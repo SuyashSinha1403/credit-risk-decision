@@ -139,7 +139,7 @@
       "parameters": {
         "resource": "message",
         "operation": "send",
-        "sendTo": "suyashsinha1403@gmail.com",
+        "sendTo": "REPLACE_ME_EMAIL@example.com",
         "subject": "Credit Risk Summary",
         "message": "={{ $json['summary_text'] }}"
       },
