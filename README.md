@@ -145,7 +145,7 @@ Run the API:
 python -m uvicorn main:app --reload
 ```
 
-Open API docs:
+Test the API in your browser:
 
 ```text
 http://localhost:8000/docs
