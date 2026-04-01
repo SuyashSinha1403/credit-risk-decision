@@ -1,0 +1,140 @@
+{
+  "name": "Credit Risk Summary Template",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0df87ab7-5a25-45f4-88f6-a31d5bd281b8",
+      "name": "Manual Trigger"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "mode": "url",
+          "value": "https://docs.google.com/spreadsheets/d/REPLACE_ME/edit#gid=0"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Decisions"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        240,
+        0
+      ],
+      "id": "777a3e94-a80f-4f18-b680-b3eb4f6fd9c1",
+      "name": "Read Decisions"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const rows = $input.all().map(item => item.json);\nconst total = rows.length;\nconst normalize = (value) => String(value ?? '').trim().toLowerCase();\nconst approved = rows.filter(r => normalize(r.decision) === 'approve').length;\nconst rejected = rows.filter(r => normalize(r.decision) === 'reject').length;\nconst review = rows.filter(r => normalize(r.decision) === 'review').length;\nconst totalExpectedLoss = rows.reduce((sum, row) => sum + Number(row.expected_loss ?? row.applicant_expected_loss ?? 0), 0);\nconst avgPd = total ? rows.reduce((sum, row) => sum + Number(row.pd ?? 0), 0) / total : 0;\nconst summary = `Credit Risk Summary\\n\\nTotal applications: ${total}\\nApproved: ${approved}\\nRejected: ${rejected}\\nUnder review: ${review}\\nAverage PD: ${avgPd.toFixed(4)}\\nTotal Expected Loss: ${totalExpectedLoss.toFixed(2)}`;\nreturn [{ json: { timestamp: new Date().toISOString(), total_applications: total, approved, rejected, review, average_pd: Number(avgPd.toFixed(4)), total_expected_loss: Number(totalExpectedLoss.toFixed(2)), summary_text: summary } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "cb3d543e-c975-46b4-b31d-64b7216b356d",
+      "name": "Build Summary"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "select": "channel",
+        "channelId": {
+          "mode": "name",
+          "value": "#credit-decisions"
+        },
+        "messageType": "text",
+        "text": "={{ $json['summary_text'] }}"
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        720,
+        -100
+      ],
+      "id": "cb3228bd-068d-4a4d-9623-f06d62caaf5f",
+      "name": "Slack Summary"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "suyashsinha1403@gmail.com",
+        "subject": "Credit Risk Summary",
+        "message": "={{ $json['summary_text'] }}"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        720,
+        100
+      ],
+      "id": "2f03cae7-cec0-485e-bc66-2a3b15592a83",
+      "name": "Gmail Summary"
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Decisions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Decisions": {
+      "main": [
+        [
+          {
+            "node": "Build Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Summary": {
+      "main": [
+        [
+          {
+            "node": "Slack Summary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "active": false,
+  "versionId": "21ac0e2d-f5e8-4744-8894-b6cf5f41f97d"
+}

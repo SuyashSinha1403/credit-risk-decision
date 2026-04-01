@@ -1,0 +1,268 @@
+{
+  "name": "Credit Risk Combined Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "credit-risk-decision-combined",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "534924d9-18fe-4d87-b7b6-2f8e93f0d214",
+      "name": "Webhook",
+      "webhookId": "credit-risk-decision-combined"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/predict",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        240,
+        0
+      ],
+      "id": "6d49143b-5b9a-459d-9645-04e2af6cb449",
+      "name": "Predict API"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: 'gemma3:4b', stream: false, prompt: `Explain this credit decision clearly:\\nPD: ${$json['pd']}\\nDecision: ${$json['decision']}\\nReason: ${$json['decision_reason']}` } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        480,
+        0
+      ],
+      "id": "f8554ea4-30e7-47af-aa88-cc01d3f0eafb",
+      "name": "Ollama"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const predict = $items('Predict API', 0, 0)[0].json;\nconst ollama = $input.first().json;\nreturn [\n  {\n    json: {\n      timestamp: new Date().toISOString(),\n      pd: predict.pd,\n      decision: predict.decision,\n      review_required: predict.review_required,\n      decision_reason: predict.decision_reason,\n      explanation: ollama.response,\n      expected_loss: predict.applicant_expected_loss,\n      policy_version: predict.policy_version,\n      policy_low_threshold: predict.policy_low_threshold,\n      policy_high_threshold: predict.policy_high_threshold\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "id": "6a9cb8f8-01f8-4b1d-b729-58b3e0ca4e3b",
+      "name": "Prepare Audit Record"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "mode": "url",
+          "value": "https://docs.google.com/spreadsheets/d/REPLACE_ME/edit#gid=0"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Decisions"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": null
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        960,
+        0
+      ],
+      "id": "1a71a94c-f342-4f40-89d6-1c426ce01afe",
+      "name": "Google Sheets"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "mode": "url",
+          "value": "https://docs.google.com/spreadsheets/d/REPLACE_ME/edit#gid=0"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Decisions"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1200,
+        0
+      ],
+      "id": "20904856-d074-468e-89e9-94381be7504f",
+      "name": "Read Decisions"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const rows = $input.all().map(item => item.json);\nconst total = rows.length;\nconst normalize = (value) => String(value ?? '').trim().toLowerCase();\nconst approved = rows.filter(r => normalize(r.decision) === 'approve').length;\nconst rejected = rows.filter(r => normalize(r.decision) === 'reject').length;\nconst review = rows.filter(r => normalize(r.decision) === 'review').length;\nconst totalExpectedLoss = rows.reduce((sum, row) => sum + Number(row.expected_loss ?? row.applicant_expected_loss ?? 0), 0);\nconst avgPd = total ? rows.reduce((sum, row) => sum + Number(row.pd ?? 0), 0) / total : 0;\nconst summary = `Credit Risk Summary\\n\\nTotal applications: ${total}\\nApproved: ${approved}\\nRejected: ${rejected}\\nUnder review: ${review}\\nAverage PD: ${avgPd.toFixed(4)}\\nTotal Expected Loss: ${totalExpectedLoss.toFixed(2)}`;\nreturn [{ json: { timestamp: new Date().toISOString(), total_applications: total, approved, rejected, review, average_pd: Number(avgPd.toFixed(4)), total_expected_loss: Number(totalExpectedLoss.toFixed(2)), summary_text: summary } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        0
+      ],
+      "id": "a74256e5-feb7-4727-9d74-d2d9414c07cf",
+      "name": "Build Summary"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "suyashsinha1403@gmail.com",
+        "subject": "Credit Risk Summary",
+        "message": "={{ $json['summary_text'] }}"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1680,
+        -100
+      ],
+      "id": "ef27fdc3-cb8f-4e04-9db0-fc1243e9ac51",
+      "name": "Gmail Summary"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "select": "channel",
+        "channelId": {
+          "mode": "name",
+          "value": "#credit-decisions"
+        },
+        "messageType": "text",
+        "text": "={{ $json['summary_text'] }}"
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        1680,
+        100
+      ],
+      "id": "157a2f03-7b95-4809-82ec-c53cc1456296",
+      "name": "Slack Summary"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Predict API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Predict API": {
+      "main": [
+        [
+          {
+            "node": "Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama": {
+      "main": [
+        [
+          {
+            "node": "Prepare Audit Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Audit Record": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Read Decisions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Decisions": {
+      "main": [
+        [
+          {
+            "node": "Build Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Summary": {
+      "main": [
+        [
+          {
+            "node": "Gmail Summary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Slack Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "active": false,
+  "versionId": "2cb4eb98-3420-4d3d-87e7-a4478703c357"
+}
