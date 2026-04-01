@@ -2,8 +2,6 @@
 
 This repository contains a credit risk decision system that combines machine learning, explainability, API serving, and workflow automation.
 
-GitHub repository: [https://github.com/SuyashSinha1403/credit-risk-decision](https://github.com/SuyashSinha1403/credit-risk-decision)
-
 ## Objective
 
 Build a simple end-to-end system that:
