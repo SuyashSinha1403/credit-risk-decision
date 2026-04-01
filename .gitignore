@@ -5,3 +5,7 @@ venv/
 artifacts/
 *.joblib
 *.log
+POC_One_Page.md
+n8n_credit_risk_full_template.json
+n8n_credit_risk_predict_ollama.json
+n8n_credit_risk_summary_template.json

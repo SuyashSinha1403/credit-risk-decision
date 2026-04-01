@@ -76,11 +76,7 @@ n8n automates the operational flow:
 ├── main.py
 ├── requirements.txt
 ├── n8n_credit_risk_combined_workflow.json
-├── n8n_credit_risk_full_template.json
-├── n8n_credit_risk_predict_ollama.json
-├── n8n_credit_risk_summary_template.json
 ├── n8n_workflow_setup.md
-├── POC_One_Page.md
 └── .gitignore
 ```
 
@@ -93,8 +89,8 @@ data/german.data
 data/german_decoded.csv
 ```
 
-- `german.data` is the original coded dataset from the source.
-- `german_decoded.csv` replaces code values like `A11`, `A43`, and `A201` with human-readable meanings.
+- `german.data` is the original coded dataset from the source
+- `german_decoded.csv` replaces code values like `A11`, `A43`, and `A201` with human-readable meanings
 
 This makes the project reproducible without downloading training data at API startup, while also making the data understandable for GitHub readers.
 
@@ -157,7 +153,7 @@ http://localhost:8000/docs
 
 ## n8n Setup
 
-Import one of the workflow JSON files into n8n. The main file is:
+Import the main workflow file into n8n:
 
 ```text
 n8n_credit_risk_combined_workflow.json
