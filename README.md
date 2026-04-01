@@ -145,12 +145,6 @@ Run the API:
 python -m uvicorn main:app --reload
 ```
 
-Test the API in your browser:
-
-```text
-http://localhost:8000/docs
-```
-
 ## n8n Setup
 
 Import the main workflow file into n8n:
