@@ -1,0 +1,88 @@
+{
+  "name": "Credit Risk Predict + Ollama",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "credit-risk-decision",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0b2f9fd0-56d7-4d75-b964-a4c2dc0b74bc",
+      "name": "Webhook",
+      "webhookId": "credit-risk-decision"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/predict",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        240,
+        0
+      ],
+      "id": "8d4fa6f1-f2c2-4208-a24d-f404d9c36d57",
+      "name": "Predict API"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: 'gemma3:4b', stream: false, prompt: `Explain this credit decision clearly:\\nPD: ${$json['pd']}\\nDecision: ${$json['decision']}\\nReason: ${$json['decision_reason']}` } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        480,
+        0
+      ],
+      "id": "06e04d1d-d5d4-4564-9e6a-5ff3651f6d0a",
+      "name": "Ollama"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Predict API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Predict API": {
+      "main": [
+        [
+          {
+            "node": "Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "active": false,
+  "versionId": "f87c1dc4-57c7-4a74-867c-f4535084ae65"
+}

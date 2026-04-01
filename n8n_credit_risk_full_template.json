@@ -1,0 +1,179 @@
+{
+  "name": "Credit Risk Full Template",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "credit-risk-decision-full",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "58963431-3b1d-4d0b-b960-9af022c056d4",
+      "name": "Webhook",
+      "webhookId": "credit-risk-decision-full"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/predict",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        240,
+        0
+      ],
+      "id": "9d65ebbc-fe97-45ba-b487-a13e1987ef5f",
+      "name": "Predict API"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: 'gemma3:4b', stream: false, prompt: `Explain this credit decision clearly:\\nPD: ${$json['pd']}\\nDecision: ${$json['decision']}\\nReason: ${$json['decision_reason']}` } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        480,
+        0
+      ],
+      "id": "8f0f35ef-fd08-4fe2-b4b3-971fb1737f54",
+      "name": "Ollama"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const predict = $items('Predict API', 0, 0)[0].json;\nconst ollama = $input.first().json;\nreturn [\n  {\n    json: {\n      timestamp: new Date().toISOString(),\n      pd: predict.pd,\n      decision: predict.decision,\n      review_required: predict.review_required,\n      decision_reason: predict.decision_reason,\n      explanation: ollama.response,\n      expected_loss: predict.applicant_expected_loss,\n      policy_version: predict.policy_version,\n      policy_low_threshold: predict.policy_low_threshold,\n      policy_high_threshold: predict.policy_high_threshold,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "id": "70e7eb92-0f8b-48d8-aeb0-db9577e42bd4",
+      "name": "Prepare Audit Record"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "select": "channel",
+        "channelId": {
+          "mode": "name",
+          "value": "#credit-decisions"
+        },
+        "messageType": "text",
+        "text": "=Loan Decision\\n\\nDecision: {{$json[\"decision\"]}}\\nPD: {{$json[\"pd\"]}}\\nExplanation: {{$json[\"explanation\"]}}\\nExpected Loss: {{$json[\"expected_loss\"]}}"
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        960,
+        -120
+      ],
+      "id": "ac67f441-c6ad-41a2-ae65-9bc4a20bba96",
+      "name": "Slack"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "mode": "url",
+          "value": "https://docs.google.com/spreadsheets/d/REPLACE_ME/edit#gid=0"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Decisions"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": null
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        960,
+        120
+      ],
+      "id": "ce14581f-a17c-458b-b063-a8df670791c9",
+      "name": "Google Sheets"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Predict API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Predict API": {
+      "main": [
+        [
+          {
+            "node": "Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama": {
+      "main": [
+        [
+          {
+            "node": "Prepare Audit Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Audit Record": {
+      "main": [
+        [
+          {
+            "node": "Slack",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "active": false,
+  "versionId": "9ba6ff69-75ff-452e-8d03-ff5ef2ad4e22"
+}
