@@ -1,4 +1,4 @@
-# Credit Risk Decision POC
+# Credit Risk Decision 
 
 This repository contains a proof-of-concept credit risk decision system that combines machine learning, explainability, API serving, and workflow automation.
 
@@ -183,7 +183,7 @@ gemma3:4b
 
 If you prefer a different Ollama model, update the model name inside the n8n Ollama node.
 
-## POC Scope and Limitations
+## Scope and Limitations
 
 This is a proof of concept, not a production system.
 
@@ -193,6 +193,6 @@ Current limitations:
 - manual review cases are flagged but not routed to a human review queue
 - the system is designed for demonstration and learning, not production-scale deployment
 
-## POC Summary
+## Summary
 
 This POC demonstrates how a structured borrower input can move through an explainable ML scoring pipeline, become a business decision, get logged for audit, and trigger automated stakeholder communication through a workflow engine.
