@@ -1,6 +1,8 @@
-# Credit Risk Decision 
+# Credit Risk Decision
 
-This repository contains a proof-of-concept credit risk decision system that combines machine learning, explainability, API serving, and workflow automation.
+This repository contains a credit risk decision system that combines machine learning, explainability, API serving, and workflow automation.
+
+GitHub repository: [https://github.com/SuyashSinha1403/credit-risk-decision](https://github.com/SuyashSinha1403/credit-risk-decision)
 
 ## Objective
 
@@ -68,16 +70,16 @@ n8n automates the operational flow:
 
 ```text
 .
-├── data/
-│   ├── german.data
-│   ├── german_decoded.csv
-│   └── DATA_DICTIONARY.md
-├── decode_german_dataset.py
-├── main.py
-├── requirements.txt
-├── n8n_credit_risk_combined_workflow.json
-├── n8n_workflow_setup.md
-└── .gitignore
+|-- data/
+|   |-- german.data
+|   |-- german_decoded.csv
+|   `-- DATA_DICTIONARY.md
+|-- decode_german_dataset.py
+|-- main.py
+|-- requirements.txt
+|-- n8n_credit_risk_combined_workflow.json
+|-- n8n_workflow_setup.md
+`-- .gitignore
 ```
 
 ## Dataset
@@ -174,7 +176,7 @@ Update placeholders such as:
 
 ## Ollama Note
 
-This project uses Ollama only for explanation wording, not for the credit decision itself.  
+This project uses Ollama only for explanation wording, not for the credit decision itself.
 The workflow is currently configured to use the model:
 
 ```text
@@ -185,7 +187,7 @@ If you prefer a different Ollama model, update the model name inside the n8n Oll
 
 ## Scope and Limitations
 
-This is a proof of concept, not a production system.
+This is a demo-oriented project, not a production system.
 
 Current limitations:
 
@@ -195,4 +197,4 @@ Current limitations:
 
 ## Summary
 
-This POC demonstrates how a structured borrower input can move through an explainable ML scoring pipeline, become a business decision, get logged for audit, and trigger automated stakeholder communication through a workflow engine.
+This project demonstrates how a structured borrower input can move through an explainable ML scoring pipeline, become a business decision, get logged for audit, and trigger automated stakeholder communication through a workflow engine.
