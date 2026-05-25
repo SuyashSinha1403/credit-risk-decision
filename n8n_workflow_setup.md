@@ -5,7 +5,10 @@ Use these node names so the expressions below work as written:
 - `Webhook`
 - `Predict API`
 - `Ollama`
-- `Slack`
+- `Needs Manual Review`
+- `Review Summary API`
+- `Prepare Audit Record`
+- `Slack Summary`
 - `Google Sheets`
 
 ## 1. Webhook
@@ -86,7 +89,7 @@ Body:
 
 ```json
 {
-  "model": "llama3",
+  "model": "gemma3:4b",
   "stream": false,
   "prompt": "Explain this credit decision clearly:\nPD: {{$json[\"pd\"]}}\nDecision: {{$json[\"decision\"]}}\nReason: {{$json[\"decision_reason\"]}}"
 }
@@ -98,7 +101,37 @@ Ollama returns the text in:
 {{$json["response"]}}
 ```
 
-## 4. Slack
+## 4. Needs Manual Review
+
+Add an `If` node after `Ollama`. Test the value:
+
+```text
+{{$items("Predict API", 0, 0)[0].json["review_required"]}}
+```
+
+Route `true` to `Review Summary API`, and route `false` directly to
+`Prepare Audit Record`.
+
+## 5. Review Summary API
+
+- Method: `POST`
+- URL: `http://localhost:8000/review-summary`
+- Send Body: `true`
+- Body Content Type: `JSON`
+
+Body:
+
+```javascript
+={{ {
+  applicant: $items("Webhook", 0, 0)[0].json.body,
+  prediction: $items("Predict API", 0, 0)[0].json
+} }}
+```
+
+The API uses Chroma retrieval over local policy documents only for applications
+whose prediction is `Review`.
+
+## 6. Slack
 
 Use explicit node references because the current JSON comes from the Ollama node.
 
@@ -113,7 +146,7 @@ Explanation: {{$node["Ollama"].json["response"]}}
 Expected Loss: {{$node["Predict API"].json["applicant_expected_loss"]}}
 ```
 
-## 5. Google Sheets
+## 7. Google Sheets
 
 Append row fields:
 
@@ -123,10 +156,19 @@ Append row fields:
 - `explanation` -> `{{$node["Ollama"].json["response"]}}`
 - `expected_loss` -> `{{$node["Predict API"].json["applicant_expected_loss"]}}`
 - `policy_version` -> `{{$node["Predict API"].json["policy_version"]}}`
+- `policy_constraints_met` -> `{{$node["Predict API"].json["policy_constraints_met"]}}`
+- `policy_selection_reason` -> `{{$node["Predict API"].json["policy_selection_reason"]}}`
+- `review_required` -> `{{$node["Predict API"].json["review_required"]}}`
+- `review_summary` -> the prepared audit record field of the same name
+- `retrieved_policy_sources` -> the prepared audit record field of the same name
+- `embedding_model` -> the prepared audit record field of the same name
+- `retrieval_policy_version` -> the prepared audit record field of the same name
+- `final_human_action` -> blank until completed by a reviewer
 
 ## Common fixes
 
 - `422` from FastAPI: a required field is missing or a category code is invalid.
 - Blank Slack fields: use `$node["Predict API"]...` instead of `$json[...]`.
 - Blank Ollama explanation: make sure `stream` is `false` and read `response`.
+- Empty `review_summary`: this is expected for `Approve` and `Reject` cases; for a `Review` case confirm Ollama has both `gemma3:4b` and `nomic-embed-text`.
 - Google Sheets blanks: map from `Predict API` and `Ollama` explicitly, not from the current node by accident.

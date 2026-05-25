@@ -4,3 +4,8 @@ pandas
 scikit-learn
 shap
 joblib
+langchain
+langchain-community
+langchain-text-splitters
+langchain-ollama
+langchain-chroma

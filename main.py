@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 import pandas as pd
 import shap
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from joblib import dump, load
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from sklearn.compose import ColumnTransformer
@@ -14,10 +14,14 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder
 
+from review_rag import ReviewRAGService
+
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 ARTIFACTS_DIR = BASE_DIR / "artifacts"
+KNOWLEDGE_BASE_DIR = BASE_DIR / "knowledge_base"
+VECTOR_STORE_DIR = ARTIFACTS_DIR / "review_policy_chroma"
 DATA_PATH = DATA_DIR / "german.data"
 ARTIFACTS_PATH = ARTIFACTS_DIR / "credit_risk_artifacts.joblib"
 DATA_COLUMNS = [
@@ -64,15 +68,55 @@ FEATURE_LABEL_MAP = {
     "credit_history_A32": "existing credits paid back duly",
     "credit_history_A33": "delay in paying off credits",
     "credit_history_A34": "critical credit history",
+    "purpose_A40": "new car purpose",
+    "purpose_A41": "used car purpose",
+    "purpose_A42": "furniture or equipment purpose",
+    "purpose_A43": "radio or television purpose",
+    "purpose_A44": "domestic appliances purpose",
+    "purpose_A45": "repairs purpose",
+    "purpose_A46": "education purpose",
+    "purpose_A48": "retraining purpose",
+    "purpose_A49": "business purpose",
+    "purpose_A410": "other purpose",
     "savings_account/bonds_A61": "low savings",
     "savings_account/bonds_A62": "moderate savings",
     "savings_account/bonds_A63": "higher savings",
     "savings_account/bonds_A64": "very high savings",
     "savings_account/bonds_A65": "unknown or no savings",
+    "present_employment_since_A71": "unemployed employment status",
+    "present_employment_since_A72": "employment under one year",
+    "present_employment_since_A73": "employment between one and four years",
+    "present_employment_since_A74": "employment between four and seven years",
+    "present_employment_since_A75": "employment of seven years or more",
+    "personal_status_and_sex_A91": "male divorced or separated category",
+    "personal_status_and_sex_A92": "female divorced, separated, or married category",
+    "personal_status_and_sex_A93": "male single category",
+    "personal_status_and_sex_A94": "male married or widowed category",
+    "property_A121": "real-estate property",
+    "property_A122": "life-insurance or savings property",
+    "property_A123": "car or other property",
+    "property_A124": "no known property",
+    "other_installment_plans_A141": "bank installment plan",
+    "other_installment_plans_A142": "store installment plan",
+    "other_installment_plans_A143": "no other installment plan",
+    "job_A171": "unemployed or non-resident job status",
+    "job_A172": "unskilled resident job status",
+    "job_A173": "skilled employee or official job status",
+    "job_A174": "management or self-employed job status",
+    "telephone_A191": "no registered telephone",
+    "telephone_A192": "registered telephone",
+    "foreign_worker_A201": "foreign worker indicated",
+    "foreign_worker_A202": "foreign worker not indicated",
     "duration_in_month": "longer loan duration",
     "credit_amount": "higher credit amount",
     "installment_rate_in_percentage_of_disposable_income": "higher installment burden",
     "age_in_years": "older borrower age",
+    "housing_A151": "rented housing",
+    "housing_A152": "owned housing",
+    "housing_A153": "free housing arrangement",
+    "other_debtors_/_guarantors_A101": "no additional debtor or guarantor",
+    "other_debtors_/_guarantors_A102": "co-applicant support",
+    "other_debtors_/_guarantors_A103": "guarantor support",
 }
 
 RAW_TO_API_FIELD = {
@@ -160,6 +204,27 @@ class PredictResponse(BaseModel):
     policy_version: str
     policy_low_threshold: float
     policy_high_threshold: float
+    policy_constraints_met: bool
+    policy_selection_reason: str
+
+
+class ReviewSummaryRequest(BaseModel):
+    applicant: BorrowerInput
+    prediction: PredictResponse
+
+
+class KnowledgeBaseSource(BaseModel):
+    document: str
+    section: str
+    policy_version: str
+
+
+class ReviewSummaryResponse(BaseModel):
+    review_summary: str
+    knowledge_base_sources: list[KnowledgeBaseSource]
+    llm_model: str
+    embedding_model: str
+    retrieval_policy_version: str
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -193,12 +258,25 @@ def prettify_feature(feature: str) -> str:
     return FEATURE_LABEL_MAP.get(feature, feature)
 
 
-def generate_reason(contributions: list[tuple[str, float]]) -> str:
+def generate_reason(
+    contributions: list[tuple[str, float]],
+    categorical_features: set[str] | None = None,
+    active_categorical_features: set[str] | None = None,
+) -> str:
     reasons = []
-    for feature, value in contributions[:3]:
+    for feature, value in contributions:
+        if (
+            categorical_features is not None
+            and active_categorical_features is not None
+            and feature in categorical_features
+            and feature not in active_categorical_features
+        ):
+            continue
         label = prettify_feature(feature)
         direction = "increases risk" if value > 0 else "decreases risk"
         reasons.append(f"{label} {direction}")
+        if len(reasons) == 3:
+            break
     return "; ".join(reasons)
 
 
@@ -260,7 +338,27 @@ def select_policy(pd_scores: pd.Series, y_test: pd.Series, credit_amount: pd.Ser
             by=["booked_expected_loss", "missed_defaults"]
         ).iloc[0]
 
-    return best_policy.to_dict()
+    return add_policy_selection_metadata(best_policy.to_dict())
+
+
+def add_policy_selection_metadata(policy: dict[str, Any]) -> dict[str, Any]:
+    result = policy.copy()
+    constraints_met = (
+        float(result["approval_rate"]) >= MIN_APPROVAL_RATE
+        and int(result["missed_defaults"]) <= MAX_MISSED_DEFAULTS
+    )
+    result["constraints_met"] = constraints_met
+    if constraints_met:
+        result["selection_reason"] = (
+            "Meets configured approval-rate and missed-default constraints; "
+            "selected by booked expected loss and false rejects."
+        )
+    else:
+        result["selection_reason"] = (
+            "No candidate met both configured approval-rate and missed-default "
+            "constraints; selected as the lowest-booked-expected-loss fallback."
+        )
+    return result
 
 
 def train_artifacts() -> dict[str, Any]:
@@ -268,8 +366,8 @@ def train_artifacts() -> dict[str, Any]:
     x = df.drop(columns=["target"])
     y = df["target"]
 
-    categorical_cols = x.select_dtypes(include=["object"]).columns.tolist()
-    numerical_cols = x.select_dtypes(exclude=["object"]).columns.tolist()
+    categorical_cols = x.select_dtypes(include=["str"]).columns.tolist()
+    numerical_cols = x.select_dtypes(exclude=["str"]).columns.tolist()
 
     x_train, x_test, y_train, y_test = train_test_split(
         x, y, test_size=0.2, random_state=42, stratify=y
@@ -332,6 +430,7 @@ def load_or_train_artifacts() -> dict[str, Any]:
         artifacts = train_artifacts()
         save_artifacts(artifacts)
 
+    artifacts["best_policy"] = add_policy_selection_metadata(artifacts["best_policy"])
     artifacts["explainer"] = shap.Explainer(artifacts["model"], artifacts["background_df"])
     return artifacts
 
@@ -339,6 +438,7 @@ def load_or_train_artifacts() -> dict[str, Any]:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     app.state.artifacts = load_or_train_artifacts()
+    app.state.review_service = ReviewRAGService(KNOWLEDGE_BASE_DIR, VECTOR_STORE_DIR)
     yield
 
 
@@ -356,6 +456,7 @@ def health() -> dict[str, Any]:
         "status": "ok",
         "model": "logistic_regression",
         "policy_version": artifacts["best_policy"]["thresholds"],
+        "policy_constraints_met": artifacts["best_policy"]["constraints_met"],
     }
 
 
@@ -387,7 +488,22 @@ def predict(input_data: BorrowerInput) -> PredictResponse:
     shap_values = artifacts["explainer"](processed_df)
     contributions = list(zip(processed_df.columns, shap_values.values[0]))
     contributions_sorted = sorted(contributions, key=lambda item: abs(item[1]), reverse=True)
-    reason = generate_reason(contributions_sorted)
+    categorical_columns = raw_df.select_dtypes(include=["str"]).columns.tolist()
+    encoded_categorical_features = set(
+        artifacts["preprocessor"]
+        .named_transformers_["cat"]
+        .get_feature_names_out(categorical_columns)
+    )
+    active_categorical_features = {
+        feature
+        for feature in encoded_categorical_features
+        if float(processed_df.iloc[0][feature]) == 1.0
+    }
+    reason = generate_reason(
+        contributions_sorted,
+        encoded_categorical_features,
+        active_categorical_features,
+    )
 
     return PredictResponse(
         pd=pd_value,
@@ -398,4 +514,21 @@ def predict(input_data: BorrowerInput) -> PredictResponse:
         policy_version=str(artifacts["best_policy"]["thresholds"]),
         policy_low_threshold=low,
         policy_high_threshold=high,
+        policy_constraints_met=bool(artifacts["best_policy"]["constraints_met"]),
+        policy_selection_reason=str(artifacts["best_policy"]["selection_reason"]),
     )
+
+
+@app.post("/review-summary", response_model=ReviewSummaryResponse)
+def review_summary(request: ReviewSummaryRequest) -> ReviewSummaryResponse:
+    try:
+        result = app.state.review_service.summarize_review_case(
+            applicant_payload=request.applicant.model_dump(),
+            prediction_payload=request.prediction.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (RuntimeError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return ReviewSummaryResponse(**result)

@@ -22,6 +22,7 @@ The project is built with:
 - **SHAP** for model explanation
 - **n8n** for workflow automation
 - **Ollama** for rewriting technical explanations into plain language
+- **LangChain + Chroma + Ollama embeddings** for review-only analyst guidance
 - **Google Sheets** for decision logging
 - **Gmail** and **Slack** for summary notifications
 
@@ -49,16 +50,25 @@ The PD is converted into:
 - `Reject`
 
 using business thresholds selected from candidate policy sets.
+If no candidate satisfies both configured operating constraints, the API
+discloses that the active thresholds are a fallback selection.
 
 ### 5. Explanation
 SHAP identifies which features pushed the model prediction up or down. Ollama then rewrites that explanation into a more human-friendly format.
 
-### 6. Workflow automation
+### 6. Review-only RAG layer
+For `Review` cases, a separate vector retrieval layer embeds local policy and
+review-playbook sections with `nomic-embed-text`, stores them in Chroma, and
+uses the retrieved passages to generate a sourced reviewer note. This layer
+does not score risk and does not replace the logistic regression model.
+
+### 7. Workflow automation
 n8n automates the operational flow:
 
 - receives borrower data through a webhook
 - calls the prediction API
 - calls Ollama for explanation wording
+- calls the review-summary API only for `Review` cases
 - writes each decision to Google Sheets
 - reads logged decisions
 - builds a summary
@@ -73,6 +83,11 @@ n8n automates the operational flow:
 |   |-- german_decoded.csv
 |   `-- DATA_DICTIONARY.md
 |-- decode_german_dataset.py
+|-- review_rag.py
+|-- knowledge_base/
+|   |-- credit_policy.md
+|   |-- manual_review_playbook.md
+|   `-- explanation_guidelines.md
 |-- main.py
 |-- requirements.txt
 |-- n8n_credit_risk_combined_workflow.json
@@ -116,6 +131,16 @@ The prediction API returns:
 - `policy_version`
 - `policy_low_threshold`
 - `policy_high_threshold`
+- `policy_constraints_met`
+- `policy_selection_reason`
+
+The review-summary API returns:
+
+- `review_summary`
+- `knowledge_base_sources`
+- `llm_model`
+- `embedding_model`
+- `retrieval_policy_version`
 
 ## Workflow Nodes
 
@@ -124,6 +149,8 @@ The combined n8n workflow uses:
 - **Webhook**: receives borrower input
 - **Predict API**: calls the FastAPI `/predict` endpoint
 - **Ollama**: rewrites technical explanation text
+- **Needs Manual Review**: routes only review-band cases into the RAG layer
+- **Review Summary API**: retrieves policy guidance and creates the analyst note
 - **Prepare Audit Record**: formats the borrower result
 - **Google Sheets**: logs each borrower decision
 - **Read Decisions**: reads all logged rows
@@ -144,6 +171,31 @@ Run the API:
 ```powershell
 python -m uvicorn main:app --reload
 ```
+
+Install the local Ollama models used for generation and retrieval:
+
+```powershell
+ollama pull gemma3:4b
+ollama pull nomic-embed-text
+```
+
+Run the automated checks:
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+Generate evaluation evidence:
+
+```powershell
+python evaluation/evaluate_model.py --output reports/model_evaluation.md
+python evaluation/evaluate_rag.py --max-cases 3 --output reports/rag_evaluation.md
+```
+
+Generated evidence included in this repository:
+
+- [`reports/model_evaluation.md`](reports/model_evaluation.md): held-out model and threshold-policy metrics
+- [`reports/rag_evaluation.md`](reports/rag_evaluation.md): three live review-case retrieval and grounding checks
 
 ## n8n Setup
 
@@ -168,8 +220,10 @@ Update placeholders such as:
 
 ## Ollama Note
 
-This project uses Ollama only for explanation wording, not for the credit decision itself.
-The workflow is currently configured to use the model:
+This project uses Ollama only for explanation wording and review-note
+generation, not for the credit decision itself. The review-summary path uses
+`nomic-embed-text` for policy embeddings and the following local generation
+model:
 
 ```text
 gemma3:4b
@@ -184,7 +238,10 @@ This is a demo-oriented project, not a production system.
 Current limitations:
 
 - credentials are environment-specific
-- manual review cases are flagged but not routed to a human review queue
+- the selected demo threshold policy is a disclosed fallback because no tested candidate satisfies both configured operating constraints on the held-out set
+- the source dataset contains demographic attributes that require fairness review or exclusion before any real lending use
+- review cases receive generated analyst guidance but are not routed into a real human task queue
+- the review-only RAG layer is meant for analyst guidance, not autonomous decisioning
 - the system is designed for demonstration and learning, not production-scale deployment
 
 ## Summary

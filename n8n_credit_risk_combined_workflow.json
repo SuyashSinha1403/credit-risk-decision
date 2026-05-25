@@ -55,14 +55,66 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9c5ab5b4-fb21-41dc-8ea1-944257cf542b",
+              "leftValue": "={{ $items('Predict API', 0, 0)[0].json.review_required }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        0
+      ],
+      "id": "7d0dfd02-3dad-407c-bf27-25f20282297e",
+      "name": "Needs Manual Review"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/review-summary",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { applicant: $items('Webhook', 0, 0)[0].json.body, prediction: $items('Predict API', 0, 0)[0].json } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        960,
+        -100
+      ],
+      "id": "9e6c43b7-1e69-4604-a8f3-a7bcac85a50d",
+      "name": "Review Summary API"
+    },
+    {
+      "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const predict = $items('Predict API', 0, 0)[0].json;\nconst ollama = $input.first().json;\nreturn [\n  {\n    json: {\n      timestamp: new Date().toISOString(),\n      pd: predict.pd,\n      decision: predict.decision,\n      review_required: predict.review_required,\n      decision_reason: predict.decision_reason,\n      explanation: ollama.response,\n      expected_loss: predict.applicant_expected_loss,\n      policy_version: predict.policy_version,\n      policy_low_threshold: predict.policy_low_threshold,\n      policy_high_threshold: predict.policy_high_threshold\n    }\n  }\n];"
+        "jsCode": "const predict = $items('Predict API', 0, 0)[0].json;\nconst ollama = $items('Ollama', 0, 0)[0].json;\nlet review = {};\ntry {\n  review = $items('Review Summary API', 0, 0)[0]?.json ?? {};\n} catch (error) {\n  review = {};\n}\nconst sources = (review.knowledge_base_sources ?? [])\n  .map(source => `${source.document} - ${source.section} (${source.policy_version})`)\n  .join('; ');\nreturn [\n  {\n    json: {\n      timestamp: new Date().toISOString(),\n      pd: predict.pd,\n      decision: predict.decision,\n      review_required: predict.review_required,\n      decision_reason: predict.decision_reason,\n      explanation: ollama.response,\n      expected_loss: predict.applicant_expected_loss,\n      policy_version: predict.policy_version,\n      policy_low_threshold: predict.policy_low_threshold,\n      policy_high_threshold: predict.policy_high_threshold,\n      policy_constraints_met: predict.policy_constraints_met,\n      policy_selection_reason: predict.policy_selection_reason,\n      review_summary: review.review_summary ?? '',\n      retrieved_policy_sources: sources,\n      review_llm_model: review.llm_model ?? '',\n      embedding_model: review.embedding_model ?? '',\n      retrieval_policy_version: review.retrieval_policy_version ?? '',\n      final_human_action: ''\n    }\n  }\n];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        720,
+        1200,
         0
       ],
       "id": "6a9cb8f8-01f8-4b1d-b729-58b3e0ca4e3b",
@@ -90,7 +142,7 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        960,
+        1440,
         0
       ],
       "id": "1a71a94c-f342-4f40-89d6-1c426ce01afe",
@@ -114,7 +166,7 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        1200,
+        1680,
         0
       ],
       "id": "20904856-d074-468e-89e9-94381be7504f",
@@ -129,7 +181,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1440,
+        1920,
         0
       ],
       "id": "a74256e5-feb7-4727-9d74-d2d9414c07cf",
@@ -146,7 +198,7 @@
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
       "position": [
-        1680,
+        2160,
         -100
       ],
       "id": "ef27fdc3-cb8f-4e04-9db0-fc1243e9ac51",
@@ -167,7 +219,7 @@
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2.4,
       "position": [
-        1680,
+        2160,
         100
       ],
       "id": "157a2f03-7b95-4809-82ec-c53cc1456296",
@@ -198,6 +250,35 @@
       ]
     },
     "Ollama": {
+      "main": [
+        [
+          {
+            "node": "Needs Manual Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Manual Review": {
+      "main": [
+        [
+          {
+            "node": "Review Summary API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Audit Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review Summary API": {
       "main": [
         [
           {
