@@ -6,18 +6,18 @@ Generated: 2026-05-26
 
 - Evaluated only applications whose policy outcome is `Review`.
 - Embedding model: `nomic-embed-text` through Ollama.
-- Vector store: Chroma over local credit-policy documents.
+- Vector store: Chroma over downloaded official European consumer-credit PDF documents.
 - Generation model: `gemma3:4b` with temperature `0`.
 - Boundary check: generated guidance must not recommend approval or rejection.
-- Grounding check: risk direction statements must be present in the signed SHAP reason.
+- Grounding check: requests must cite PDF evidence and must not target mitigating SHAP factors.
 
 ## Results
 
-| Case | PD | Retrieved Policy Sections | Decision Boundary | Grounding Check |
-| ---: | ---: | --- | --- | --- |
-| 1 | 0.2832 | credit_policy.md - Affordability Evidence; credit_policy.md - Policy Scope And Decision Boundary; manual_review_playbook.md - Loan Size And Tenure Check; credit_policy.md - Thin Liquidity Signals | Pass | Pass |
-| 2 | 0.2678 | credit_policy.md - Affordability Evidence; credit_policy.md - Policy Scope And Decision Boundary; manual_review_playbook.md - Loan Size And Tenure Check; credit_policy.md - Thin Liquidity Signals | Pass | Pass |
-| 3 | 0.3080 | credit_policy.md - Affordability Evidence; credit_policy.md - Policy Scope And Decision Boundary; credit_policy.md - Credit History Escalation; credit_policy.md - Thin Liquidity Signals | Pass | Pass |
+| Case | PD | Retrieved Policy Sections | Guardrail | Decision Boundary | Grounding Check |
+| ---: | ---: | --- | --- | --- | --- |
+| 1 | 0.2832 | [Source 1] European Banking Authority: Guidelines on loan origination and monitoring - p. 35; [Source 2] European Banking Authority: Guidelines on loan origination and monitoring - p. 33; [Source 3] European Banking Authority: Guidelines on loan origination and monitoring - p. 50; [Source 4] European Banking Authority: Guidelines on loan origination and monitoring - p. 38 | Applied | Pass | Pass |
+| 2 | 0.2678 | [Source 1] European Banking Authority: Guidelines on loan origination and monitoring - p. 33; [Source 2] European Banking Authority: Guidelines on loan origination and monitoring - p. 38; [Source 3] European Banking Authority: Guidelines on loan origination and monitoring - p. 35; [Source 4] European Parliament and Council of the European Union: Directive (EU) 2023/2225 on credit agreements for consumers - p. 34 | Applied | Pass | Pass |
+| 3 | 0.3080 | [Source 1] European Banking Authority: Guidelines on loan origination and monitoring - p. 35; [Source 2] European Banking Authority: Guidelines on loan origination and monitoring - p. 33; [Source 3] European Banking Authority: Guidelines on loan origination and monitoring - p. 38; [Source 4] European Banking Authority: Guidelines on loan origination and monitoring - p. 50 | Applied | Pass | Pass |
 
 ## Case 1
 
@@ -27,13 +27,13 @@ Generated review note:
 
 ```text
 1. Why this case needs review
-The logistic regression score indicates a 28.32% probability of default, and the signed model reason highlights 'longer loan duration increases risk'.
+The model identified risk-increasing factor(s): longer loan duration increases risk.
 
 2. Evidence to verify
-Request affordability evidence due to the 'longer loan duration increases risk' factor and the 42-month loan duration. Specifically, request recent income proof and existing monthly obligation information.
+Verify repayment capacity and supporting financial information for the risk-increasing factor(s) using the retrieved policy passage [Source 1].
 
 3. Suggested analyst action
-Place the case in a pending-document state for human handling to verify affordability evidence.
+Record the verified evidence and retain the case for human disposition [Source 1].
 ```
 
 ## Case 2
@@ -44,13 +44,13 @@ Generated review note:
 
 ```text
 1. Why this case needs review
-The logistic regression score indicates a 26.78% probability of default, and the signed model reason highlights a higher credit amount as an increasing risk factor.
+The model identified risk-increasing factor(s): education purpose increases risk; higher credit amount increases risk.
 
 2. Evidence to verify
-Affordability evidence is required due to the higher credit amount (9055.0) and the model's assessment that it increases risk. Specifically, recent income proof and existing monthly obligation information should be requested.
+Verify repayment capacity and supporting financial information for the risk-increasing factor(s) using the retrieved policy passage [Source 1].
 
 3. Suggested analyst action
-Request affordability evidence as per policy context [Source 1] and [Source 3]. Place the case in a pending-document state if affordability evidence is unavailable.
+Record the verified evidence and retain the case for human disposition [Source 1].
 ```
 
 ## Case 3
@@ -61,13 +61,13 @@ Generated review note:
 
 ```text
 1. Why this case needs review
-The logistic regression score indicates a 30.8% probability of default, with the signed model reason citing a higher credit amount and longer loan duration as risk factors.
+The model identified risk-increasing factor(s): higher credit amount increases risk; longer loan duration increases risk.
 
 2. Evidence to verify
-Request affordability evidence due to the higher credit amount (6948.0) and longer loan duration (36 months).
+Verify repayment capacity and supporting financial information for the risk-increasing factor(s) using the retrieved policy passage [Source 1].
 
 3. Suggested analyst action
-Review recent income proof and existing monthly obligation information to assess repayment burden and compare with the borrower profile.
+Record the verified evidence and retain the case for human disposition [Source 1].
 ```
 
 ## Limitation

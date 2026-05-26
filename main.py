@@ -21,7 +21,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 ARTIFACTS_DIR = BASE_DIR / "artifacts"
 KNOWLEDGE_BASE_DIR = BASE_DIR / "knowledge_base"
-VECTOR_STORE_DIR = ARTIFACTS_DIR / "review_policy_chroma"
+VECTOR_STORE_DIR = BASE_DIR / "vector_store" / "official_pdf_review_chroma"
 DATA_PATH = DATA_DIR / "german.data"
 ARTIFACTS_PATH = ARTIFACTS_DIR / "credit_risk_artifacts.joblib"
 DATA_COLUMNS = [
@@ -214,7 +214,12 @@ class ReviewSummaryRequest(BaseModel):
 
 
 class KnowledgeBaseSource(BaseModel):
+    citation_label: str
     document: str
+    title: str
+    authority: str
+    page: str
+    source_url: str
     section: str
     policy_version: str
 
@@ -225,6 +230,7 @@ class ReviewSummaryResponse(BaseModel):
     llm_model: str
     embedding_model: str
     retrieval_policy_version: str
+    review_guardrail_applied: bool
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:

@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 venv/
 artifacts/
+vector_store/
 *.joblib
 *.log
 POC_One_Page.md

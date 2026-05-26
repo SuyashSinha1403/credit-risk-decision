@@ -31,8 +31,13 @@ class N8nWorkflowTests(unittest.TestCase):
         for field in [
             "review_summary",
             "retrieved_policy_sources",
+            "source.title",
+            "source.page",
+            "source.authority",
+            "source.citation_label",
             "embedding_model",
             "retrieval_policy_version",
+            "review_guardrail_applied",
             "final_human_action",
             "policy_constraints_met",
             "policy_selection_reason",

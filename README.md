@@ -57,10 +57,21 @@ discloses that the active thresholds are a fallback selection.
 SHAP identifies which features pushed the model prediction up or down. Ollama then rewrites that explanation into a more human-friendly format.
 
 ### 6. Review-only RAG layer
-For `Review` cases, a separate vector retrieval layer embeds local policy and
-review-playbook sections with `nomic-embed-text`, stores them in Chroma, and
-uses the retrieved passages to generate a sourced reviewer note. This layer
-does not score risk and does not replace the logistic regression model.
+For `Review` cases, a separate vector retrieval layer extracts and embeds
+page-level text from official European consumer-credit PDFs with
+`nomic-embed-text`, stores it in Chroma, and uses retrieved passages to
+generate a sourced reviewer note. Citations include the issuing authority,
+document title, page number, and official source URL. This layer does not
+score risk and does not replace the logistic regression model.
+
+A response guardrail rejects generated evidence requests that target
+non-risk-increasing factors, use the wrong currency, or introduce unsupported
+consumer-review concepts. When necessary it returns a conservative grounded
+fallback note and reports that intervention in the audit output.
+
+The generated vector index is stored locally under
+`vector_store/official_pdf_review_chroma/` and is rebuilt automatically for a
+new PDF corpus fingerprint.
 
 ### 7. Workflow automation
 n8n automates the operational flow:
@@ -85,9 +96,11 @@ n8n automates the operational flow:
 |-- decode_german_dataset.py
 |-- review_rag.py
 |-- knowledge_base/
-|   |-- credit_policy.md
-|   |-- manual_review_playbook.md
-|   `-- explanation_guidelines.md
+|   |-- README.md
+|   |-- sources.json
+|   `-- pdfs/
+|       |-- EBA_GL_2020_06_Loan_Origination_and_Monitoring.pdf
+|       `-- Directive_EU_2023_2225_Consumer_Credit.pdf
 |-- main.py
 |-- requirements.txt
 |-- n8n_credit_risk_combined_workflow.json
@@ -108,6 +121,19 @@ data/german_decoded.csv
 - `german_decoded.csv` replaces code values like `A11`, `A43`, and `A201` with human-readable meanings
 
 This makes the project reproducible without downloading training data at API startup, while also making the data understandable for GitHub readers.
+
+The model data is European in context: the UCI dataset uses Deutsche Mark
+values and German-coded credit attributes. Accordingly, the retrieval corpus
+uses official European sources:
+
+- European Banking Authority, *Guidelines on loan origination and monitoring*
+  (EBA/GL/2020/06, 29 May 2020)
+- Directive (EU) 2023/2225, *Credit agreements for consumers*
+  (30 October 2023)
+
+The PDF documents and their official URLs are recorded under
+`knowledge_base/`. The UCI dataset source is documented in
+[`data/DATA_DICTIONARY.md`](data/DATA_DICTIONARY.md).
 
 ## Model Artifacts
 
@@ -137,10 +163,11 @@ The prediction API returns:
 The review-summary API returns:
 
 - `review_summary`
-- `knowledge_base_sources`
+- `knowledge_base_sources`, with PDF authority, title, page number, and URL
 - `llm_model`
 - `embedding_model`
 - `retrieval_policy_version`
+- `review_guardrail_applied`
 
 ## Workflow Nodes
 
@@ -195,7 +222,7 @@ python evaluation/evaluate_rag.py --max-cases 3 --output reports/rag_evaluation.
 Generated evidence included in this repository:
 
 - [`reports/model_evaluation.md`](reports/model_evaluation.md): held-out model and threshold-policy metrics
-- [`reports/rag_evaluation.md`](reports/rag_evaluation.md): three live review-case retrieval and grounding checks
+- [`reports/rag_evaluation.md`](reports/rag_evaluation.md): review-case retrieval and grounding checks against official PDF passages
 
 ## n8n Setup
 
@@ -239,7 +266,7 @@ Current limitations:
 
 - credentials are environment-specific
 - the selected demo threshold policy is a disclosed fallback because no tested candidate satisfies both configured operating constraints on the held-out set
-- the source dataset contains demographic attributes that require fairness review or exclusion before any real lending use
+- the historical dataset contains age, sex/personal-status, and foreign-worker attributes that require legal review, exclusion or controls, and formal fairness testing before any real lending use
 - review cases receive generated analyst guidance but are not routed into a real human task queue
 - the review-only RAG layer is meant for analyst guidance, not autonomous decisioning
 - the system is designed for demonstration and learning, not production-scale deployment

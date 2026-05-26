@@ -27,7 +27,7 @@ class ReviewRAGPromptTests(unittest.TestCase):
         prompt = self.service._build_prompt(
             self.applicant,
             self.prediction,
-            "[Source 1: credit_policy.md - Affordability Evidence]",
+            "[Source 1: Guidelines on loan origination and monitoring, page 36]",
         )
 
         self.assertIn("Do not make, recommend, or imply a final approve/reject decision", prompt)
@@ -49,6 +49,30 @@ class ReviewRAGPromptTests(unittest.TestCase):
         )
 
         self.assertEqual(text, '"Review" - analyst\'s evidence')
+
+    def test_retrieval_query_excludes_mitigating_factors(self) -> None:
+        query = self.service._build_query(self.applicant, self.prediction)
+
+        self.assertIn("longer loan duration increases risk", query)
+        self.assertNotIn("guarantor support decreases risk", query)
+
+    def test_review_note_guard_blocks_consumer_irrelevant_actions(self) -> None:
+        violations = self.service._note_violations(
+            "2. Evidence to verify\nAssess refinancing in capital markets [Source 1].",
+            self.prediction,
+        )
+
+        self.assertTrue(any("refinanc" in item for item in violations))
+        self.assertTrue(any("capital market" in item for item in violations))
+
+    def test_official_pdf_sources_are_loaded_as_the_knowledge_base(self) -> None:
+        files = self.service._get_knowledge_files()
+
+        self.assertTrue(files)
+        self.assertTrue(all(path.suffix == ".pdf" for path in files))
+        self.assertTrue(
+            any("EBA_GL_2020_06" in path.name for path in files),
+        )
 
 
 if __name__ == "__main__":

@@ -128,8 +128,9 @@ Body:
 } }}
 ```
 
-The API uses Chroma retrieval over local policy documents only for applications
-whose prediction is `Review`.
+The API uses Chroma retrieval over official European consumer-credit PDFs only
+for applications whose prediction is `Review`. Each returned source includes
+the authority, PDF title, page number, and official download URL.
 
 ## 6. Slack
 
@@ -160,9 +161,10 @@ Append row fields:
 - `policy_selection_reason` -> `{{$node["Predict API"].json["policy_selection_reason"]}}`
 - `review_required` -> `{{$node["Predict API"].json["review_required"]}}`
 - `review_summary` -> the prepared audit record field of the same name
-- `retrieved_policy_sources` -> the prepared audit record field of the same name
+- `retrieved_policy_sources` -> PDF authority, title, page, version, and official URL from the prepared audit record
 - `embedding_model` -> the prepared audit record field of the same name
 - `retrieval_policy_version` -> the prepared audit record field of the same name
+- `review_guardrail_applied` -> whether unsupported generated guidance was replaced by the conservative grounded fallback
 - `final_human_action` -> blank until completed by a reviewer
 
 ## Common fixes

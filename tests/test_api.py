@@ -93,14 +93,20 @@ class FakeReviewService:
             ),
             "knowledge_base_sources": [
                 {
-                    "document": "credit_policy.md",
-                    "section": "Affordability Evidence",
-                    "policy_version": "review-policy-v1.0",
+                    "citation_label": "Source 1",
+                    "document": "EBA_GL_2020_06_Loan_Origination_and_Monitoring.pdf",
+                    "title": "Guidelines on loan origination and monitoring",
+                    "authority": "European Banking Authority",
+                    "page": "36",
+                    "source_url": "https://www.eba.europa.eu/example.pdf",
+                    "section": "Page 36",
+                    "policy_version": "official-eu-credit-guidance-v1.0",
                 }
             ],
             "llm_model": "fake-review-model",
             "embedding_model": "fake-embedding-model",
             "retrieval_policy_version": "review-policy-v1.0",
+            "review_guardrail_applied": False,
         }
 
 
@@ -160,9 +166,10 @@ class CreditDecisionAPITests(unittest.TestCase):
         payload = result.json()
         self.assertEqual(self.review_service.calls, 1)
         self.assertEqual(payload["embedding_model"], "fake-embedding-model")
+        self.assertFalse(payload["review_guardrail_applied"])
         self.assertEqual(
-            payload["knowledge_base_sources"][0]["section"],
-            "Affordability Evidence",
+            payload["knowledge_base_sources"][0]["page"],
+            "36",
         )
 
     def test_review_summary_blocks_non_review_case(self) -> None:

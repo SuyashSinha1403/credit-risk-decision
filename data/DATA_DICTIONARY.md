@@ -2,6 +2,13 @@
 
 This project includes the original raw dataset in [german.data](D:/n8n/data/german.data) and a decoded human-readable version in `german_decoded.csv`.
 
+Official source: [UCI Statlog (German Credit Data)](https://archive.ics.uci.edu/dataset/144/statlog).
+
+Because this training dataset uses European/German credit data and Deutsche
+Mark amounts, the review-only RAG layer is grounded in official European
+consumer-credit PDF guidance rather than regulations from another
+jurisdiction.
+
 ## Key idea
 
 The original dataset stores many categorical values as compact codes such as:
@@ -63,3 +70,10 @@ The decoded CSV translates them into plain language for easier understanding.
 
 - `german.data` keeps the original raw UCI format for reproducibility
 - `german_decoded.csv` makes the dataset understandable for reviewers and GitHub readers
+
+## Responsible-Use Note
+
+The dataset includes age, a personal-status-and-sex field, and foreign-worker
+status. These historical attributes are retained for reproducibility, but a
+real lending model would need legal review, feature controls or removal, and
+fairness testing before use.

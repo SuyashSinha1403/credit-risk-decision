@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
 
 DEFAULT_REVIEW_MODEL = "gemma3:4b"
 DEFAULT_EMBEDDING_MODEL = "nomic-embed-text"
-RETRIEVAL_POLICY_VERSION = "review-policy-v1.0"
+RETRIEVAL_POLICY_VERSION = "official-eu-credit-guidance-v1.0"
 
 
 class ReviewRAGService:
@@ -39,6 +40,29 @@ class ReviewRAGService:
         context = self._format_docs(retrieved_docs)
         prompt = self._build_prompt(applicant_payload, prediction_payload, context)
         review_summary = self._normalize_generated_text(str(self._llm.invoke(prompt)).strip())
+        violations = self._note_violations(review_summary, prediction_payload)
+        guardrail_applied = bool(violations)
+        if violations:
+            correction = (
+                "\n\nThe prior draft was invalid because it: "
+                + "; ".join(violations)
+                + ". Rewrite it and follow every rule exactly."
+            )
+            review_summary = self._normalize_generated_text(
+                str(self._llm.invoke(prompt + correction)).strip()
+            )
+        if self._note_violations(review_summary, prediction_payload):
+            factors = "; ".join(self._risk_increasing_factors(prediction_payload))
+            review_summary = (
+                "1. Why this case needs review\n"
+                f"The model identified risk-increasing factor(s): {factors}.\n\n"
+                "2. Evidence to verify\n"
+                "Verify repayment capacity and supporting financial information for the "
+                "risk-increasing factor(s) using the retrieved policy passage [Source 1].\n\n"
+                "3. Suggested analyst action\n"
+                "Record the verified evidence and retain the case for human disposition "
+                "[Source 1]."
+            )
 
         return {
             "review_summary": review_summary,
@@ -46,6 +70,7 @@ class ReviewRAGService:
             "llm_model": self.model_name,
             "embedding_model": self.embedding_model,
             "retrieval_policy_version": RETRIEVAL_POLICY_VERSION,
+            "review_guardrail_applied": guardrail_applied,
         }
 
     def _normalize_generated_text(self, text: str) -> str:
@@ -67,11 +92,9 @@ class ReviewRAGService:
 
         try:
             from langchain_chroma import Chroma
+            from langchain_community.document_loaders import PyPDFLoader
             from langchain_ollama import OllamaEmbeddings, OllamaLLM
-            from langchain_text_splitters import (
-                MarkdownHeaderTextSplitter,
-                RecursiveCharacterTextSplitter,
-            )
+            from langchain_text_splitters import RecursiveCharacterTextSplitter
         except ImportError as exc:
             raise RuntimeError(
                 "Vector RAG dependencies are not installed. "
@@ -79,30 +102,34 @@ class ReviewRAGService:
             ) from exc
 
         knowledge_files = self._get_knowledge_files()
-        header_splitter = MarkdownHeaderTextSplitter(
-            headers_to_split_on=[
-                ("#", "document_heading"),
-                ("##", "section"),
-                ("###", "subsection"),
-            ],
-            strip_headers=False,
-        )
-        section_documents = []
+        source_manifest = self._load_source_manifest()
+        page_documents = []
         for path in knowledge_files:
-            for document in header_splitter.split_text(path.read_text(encoding="utf-8")):
+            source_metadata = source_manifest.get(path.name, {})
+            indexed_pages = set(source_metadata.get("indexed_pages", []))
+            for document in PyPDFLoader(str(path)).load():
+                page_number = int(document.metadata.get("page", 0)) + 1
+                if indexed_pages and page_number not in indexed_pages:
+                    continue
                 document.metadata.update(
                     {
                         "document": path.name,
+                        "title": source_metadata.get("title", path.stem),
+                        "authority": source_metadata.get("authority", "Unknown authority"),
+                        "source_url": source_metadata.get("source_url", ""),
+                        "publication_date": source_metadata.get("publication_date", ""),
+                        "jurisdiction": source_metadata.get("jurisdiction", ""),
+                        "page": page_number,
+                        "section": f"Page {page_number}",
                         "policy_version": RETRIEVAL_POLICY_VERSION,
                     }
                 )
-                document.metadata["section"] = self._section_name(document.metadata)
-                section_documents.append(document)
+                page_documents.append(document)
 
         chunker = RecursiveCharacterTextSplitter(chunk_size=700, chunk_overlap=100)
-        chunks = chunker.split_documents(section_documents)
+        chunks = chunker.split_documents(page_documents)
         if not chunks:
-            raise FileNotFoundError("No usable text was found in the policy knowledge base.")
+            raise FileNotFoundError("No usable text was found in the PDF knowledge base.")
 
         collection_name = f"credit_review_{self._knowledge_fingerprint(knowledge_files)}"
         self.vector_store_dir.mkdir(parents=True, exist_ok=True)
@@ -131,26 +158,28 @@ class ReviewRAGService:
                 f"Knowledge base directory not found at {self.knowledge_base_dir}."
             )
 
-        knowledge_files = sorted(self.knowledge_base_dir.glob("*.md"))
+        knowledge_files = sorted((self.knowledge_base_dir / "pdfs").glob("*.pdf"))
         if not knowledge_files:
             raise FileNotFoundError(
-                f"No markdown knowledge-base files found in {self.knowledge_base_dir}."
+                f"No PDF knowledge-base files found in {self.knowledge_base_dir / 'pdfs'}."
             )
         return knowledge_files
 
-    def _knowledge_fingerprint(self, knowledge_files: list[Path]) -> str:
-        content = "\n".join(
-            f"{path.name}:{path.read_text(encoding='utf-8')}" for path in knowledge_files
-        )
-        return hashlib.sha256(content.encode("utf-8")).hexdigest()[:12]
+    def _load_source_manifest(self) -> dict[str, dict[str, Any]]:
+        manifest_path = self.knowledge_base_dir / "sources.json"
+        if not manifest_path.exists():
+            raise FileNotFoundError(
+                f"Knowledge-base source manifest not found at {manifest_path}."
+            )
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    def _section_name(self, metadata: dict[str, Any]) -> str:
-        return str(
-            metadata.get("subsection")
-            or metadata.get("section")
-            or metadata.get("document_heading")
-            or "General"
-        )
+    def _knowledge_fingerprint(self, knowledge_files: list[Path]) -> str:
+        hasher = hashlib.sha256()
+        for path in knowledge_files:
+            hasher.update(path.name.encode("utf-8"))
+            hasher.update(path.read_bytes())
+        hasher.update((self.knowledge_base_dir / "sources.json").read_bytes())
+        return hasher.hexdigest()[:12]
 
     def _build_query(
         self,
@@ -159,10 +188,12 @@ class ReviewRAGService:
     ) -> str:
         case_facts = self._permitted_case_facts(applicant_payload, prediction_payload)
         return (
-            "manual credit review policy evidence verification audit record "
-            f"model risk drivers {case_facts.get('signed_model_reason', '')} "
+            "consumer creditworthiness assessment human review evidence verification "
+            "income expenses financial commitments affordability audit record "
+            f"risk increasing model factors {case_facts.get('risk_increasing_factors', [])} "
             f"probability of default {case_facts.get('probability_of_default', '')} "
-            f"relevant case facts {case_facts}"
+            f"credit amount in Deutsche Mark {case_facts.get('credit_amount_in_deutsche_mark', '')} "
+            f"loan duration {case_facts.get('duration_in_month', '')}"
         )
 
     def _build_prompt(
@@ -182,10 +213,17 @@ Rules:
 - The signed model reason is authoritative: a factor marked "decreases risk" is
   mitigating context, not a concern requiring verification.
 - Use only checks and actions directly related to risk-increasing factors in the
-  signed model reason; ignore unrelated retrieved sections.
+  `risk_increasing_factors` list; never request checks for mitigating factors.
+- Do not request verification of a feature that is absent from `risk_increasing_factors`.
 - Numeric facts are supplied only for factors identified in the signed model reason.
+- Amount values are in Deutsche Mark (DM); do not convert them or write a dollar symbol.
+- This is an individual consumer credit application at origination; do not discuss
+  capital markets, refinancing, loan monitoring, or corporate projections.
+- The case needs review because its policy outcome is Review; do not claim that
+  its PD breaches an institutional risk appetite or an undocumented threshold.
 - Do not mention or infer coded application categories.
 - Base requested checks and next actions only on the retrieved policy context.
+- Cite at least one retrieved source label such as [Source 1] in sections 2 and 3.
 - Source metadata is logged separately, so do not invent source support for model facts.
 - If policy context or borrower evidence is insufficient, state what is missing.
 
@@ -207,47 +245,77 @@ Write only a concise reviewer note, without a preamble, with exactly these headi
         prediction_payload: dict[str, Any],
     ) -> dict[str, Any]:
         signed_reason = str(prediction_payload.get("decision_reason", ""))
+        risk_increasing_factors = self._risk_increasing_factors(prediction_payload)
         case_facts = {
             "decision": prediction_payload.get("decision"),
             "probability_of_default": prediction_payload.get("pd"),
-            "signed_model_reason": signed_reason,
+            "risk_increasing_factors": risk_increasing_factors,
         }
         if "higher credit amount" in signed_reason:
-            case_facts["credit_amount"] = applicant_payload.get("credit_amount")
+            case_facts["credit_amount_in_deutsche_mark"] = applicant_payload.get("credit_amount")
         if "longer loan duration" in signed_reason:
             case_facts["duration_in_month"] = applicant_payload.get(
                 "duration_in_month", applicant_payload.get("duration")
             )
         return case_facts
 
+    def _risk_increasing_factors(self, prediction_payload: dict[str, Any]) -> list[str]:
+        signed_reason = str(prediction_payload.get("decision_reason", ""))
+        return [
+            factor.strip()
+            for factor in signed_reason.split(";")
+            if "increases risk" in factor
+        ]
+
+    def _note_violations(
+        self,
+        note: str,
+        prediction_payload: dict[str, Any],
+    ) -> list[str]:
+        requested_checks = note.lower().split("2. evidence to verify", 1)[-1]
+        allowed = " ".join(self._risk_increasing_factors(prediction_payload)).lower()
+        violations = []
+        for term in ["purpose", "guarantor", "housing", "savings", "employment", "credit history"]:
+            if term in requested_checks and term not in allowed:
+                violations.append(f"requested verification of non-risk factor '{term}'")
+        if "$" in note:
+            violations.append("used dollars for Deutsche Mark values")
+        for unsupported in ["risk appetite", "refinanc", "roll over", "macroeconomic", "capital market"]:
+            if unsupported in note.lower():
+                violations.append(f"used unsupported consumer-review concept '{unsupported}'")
+        if "source " not in requested_checks and "[source" not in requested_checks:
+            violations.append("omitted a source citation")
+        return violations
+
     def _format_docs(self, documents: list[Any]) -> str:
         formatted_chunks = []
         for index, document in enumerate(documents, start=1):
-            source = document.metadata.get("document", "unknown")
-            section = document.metadata.get("section", "General")
+            source = document.metadata.get("title", document.metadata.get("document", "unknown"))
+            page = document.metadata.get("page", "unknown")
             formatted_chunks.append(
-                f"[Source {index}: {source} - {section}]\n{document.page_content}"
+                f"[Source {index}: {source}, page {page}]\n{document.page_content}"
             )
         return "\n\n".join(formatted_chunks)
 
     def _collect_sources(self, documents: list[Any]) -> list[dict[str, str]]:
-        seen: set[tuple[str, str]] = set()
         sources = []
-        for document in documents:
+        for index, document in enumerate(documents, start=1):
             document_name = str(document.metadata.get("document", "unknown"))
-            section = str(document.metadata.get("section", "General"))
-            key = (document_name, section)
-            if key not in seen:
-                seen.add(key)
-                sources.append(
-                    {
-                        "document": document_name,
-                        "section": section,
-                        "policy_version": str(
-                            document.metadata.get(
-                                "policy_version", RETRIEVAL_POLICY_VERSION
-                            )
-                        ),
-                    }
-                )
+            page = str(document.metadata.get("page", "unknown"))
+            sources.append(
+                {
+                    "citation_label": f"Source {index}",
+                    "document": document_name,
+                    "title": str(document.metadata.get("title", document_name)),
+                    "authority": str(document.metadata.get("authority", "")),
+                    "page": page,
+                    "source_url": str(document.metadata.get("source_url", "")),
+                    "section": f"Page {page}",
+                    "policy_version": str(
+                        document.metadata.get(
+                            "policy_version", RETRIEVAL_POLICY_VERSION
+                        )
+                    ),
+                }
+            )
         return sources

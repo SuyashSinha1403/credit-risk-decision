@@ -31,6 +31,24 @@ def find_grounding_violations(note: str, signed_reason: str) -> list[str]:
     violations = []
     note_lower = note.lower()
     reason_lower = signed_reason.lower()
+    requested_checks = note_lower.split("2. evidence to verify", 1)[-1]
+    mitigating_factors = [
+        part.split(" decreases risk", 1)[0].strip()
+        for part in reason_lower.split(";")
+        if "decreases risk" in part
+    ]
+    for factor in mitigating_factors:
+        if factor in requested_checks:
+            violations.append(f"Requested evidence for mitigating factor: {factor}")
+    if "purpose" in requested_checks and "purpose increases risk" not in reason_lower:
+        violations.append("Requested purpose evidence without a risk-increasing purpose factor")
+    if "$" in note:
+        violations.append("Represented Deutsche Mark dataset values as dollars")
+    for unsupported in ["risk appetite", "refinanc", "roll over", "macroeconomic", "capital market"]:
+        if unsupported in note_lower:
+            violations.append(f"Unsupported consumer-review concept: {unsupported}")
+    if "source " not in requested_checks and "[source" not in requested_checks:
+        violations.append("Evidence/action sections contain no retrieved-source citation")
     if (
         ("higher credit amount" in note_lower or "high credit amount" in note_lower)
         and "higher credit amount" not in reason_lower
@@ -86,7 +104,7 @@ def build_report(max_cases: int) -> str:
                 note, prediction["decision_reason"]
             )
             sources = "; ".join(
-                f"{source['document']} - {source['section']}"
+                f"[{source['citation_label']}] {source['authority']}: {source['title']} - p. {source['page']}"
                 for source in result["knowledge_base_sources"]
             )
             evaluated_cases.append(
@@ -97,6 +115,7 @@ def build_report(max_cases: int) -> str:
                     "sources": sources,
                     "boundary": "Pass" if not prohibited_matches else "Fail",
                     "grounding": "Pass" if not grounding_violations else "Fail",
+                    "guardrail": "Applied" if result["review_guardrail_applied"] else "Not applied",
                     "note": note,
                 }
             )
@@ -110,20 +129,20 @@ def build_report(max_cases: int) -> str:
         "",
         "- Evaluated only applications whose policy outcome is `Review`.",
         "- Embedding model: `nomic-embed-text` through Ollama.",
-        "- Vector store: Chroma over local credit-policy documents.",
+        "- Vector store: Chroma over downloaded official European consumer-credit PDF documents.",
         "- Generation model: `gemma3:4b` with temperature `0`.",
         "- Boundary check: generated guidance must not recommend approval or rejection.",
-        "- Grounding check: risk direction statements must be present in the signed SHAP reason.",
+        "- Grounding check: requests must cite PDF evidence and must not target mitigating SHAP factors.",
         "",
         "## Results",
         "",
-        "| Case | PD | Retrieved Policy Sections | Decision Boundary | Grounding Check |",
-        "| ---: | ---: | --- | --- | --- |",
+        "| Case | PD | Retrieved Policy Sections | Guardrail | Decision Boundary | Grounding Check |",
+        "| ---: | ---: | --- | --- | --- | --- |",
     ]
     for item in evaluated_cases:
         lines.append(
             f"| {item['case']} | {item['pd']:.4f} | {item['sources']} | "
-            f"{item['boundary']} | {item['grounding']} |"
+            f"{item['guardrail']} | {item['boundary']} | {item['grounding']} |"
         )
     lines.append("")
     for item in evaluated_cases:
